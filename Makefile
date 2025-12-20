@@ -17,11 +17,20 @@ GROUP!= 	id -gn
 BUILDIMG=	build-${ARCH}.img
 BUILDIMGPATH=	images/${BUILDIMG}
 BUILDIMGURL=	https://github.com/NetBSDfr/smolBSD/releases/download/latest/${BUILDIMG}
+BUILDCPUS?=	2
+BUILDMEM?=	1024
+# used to set console in boot.cfg for BIOS boot
+BIOSCONSOLE?=	com0
 
 SERVICE?=	${.TARGET}
 # guest root filesystem will be read-only
 .if defined(MOUNTRO) && ${MOUNTRO} == "y"
 EXTRAS+=	-o
+.endif
+# enable BIOS boot
+.if defined(BIOSBOOT) && ${BIOSBOOT} == "y"
+BIOSKERNEL?=	kernels/netbsd-GENERIC
+EXTRAS+=	-b -k ${BIOSKERNEL}
 .endif
 
 # variables to transfer to mkimg.sh
@@ -29,9 +38,11 @@ ENVVARS=	SERVICE=${SERVICE} \
 		ARCH=${ARCH} \
 		PKGVERS=${PKGVERS} \
 		MOUNTRO=${MOUNTRO} \
+		BIOSBOOT=${BIOSBOOT} \
 		PKGSITE=${PKGSITE} \
 		ADDPKGS="${ADDPKGS}" \
-		MINIMIZE=${MINIMIZE}
+		MINIMIZE=${MINIMIZE} \
+		BIOSCONSOLE=${BIOSCONSOLE}
 
 .if ${WHOAMI} != "root" && !defined(NOSUDO) # allow non root builds
 SUDO!=		command -v doas >/dev/null && \
@@ -72,8 +83,10 @@ ROOTFS?=	-r ld5a
 
 # any BSD variant including MacOS
 DDUNIT=		m
+CKSUMQ=		-q
 .if ${OS} == "Linux"
 DDUNIT=		M
+CKSUMQ=		--quiet
 .endif
 FETCH=		scripts/fetch.sh
 FRESHCHK=	scripts/freshchk.sh
@@ -107,6 +120,9 @@ kernfetch:
 	$Qif [ "${ARCH}" = "amd64" ] || [ "${ARCH}" = "i386" ]; then \
 		${FRESHCHK} ${KDIST}/${KERNEL} kernels/${KERNEL} || \
 			${FETCH} -o kernels/${KERNEL} ${KDIST}/${KERNEL}; \
+		cd kernels && curl -L -s -o- ${KDIST}/${KERNEL}.sha256 | \
+			cksum -a sha256 -c ${CKSUMQ} && \
+				echo "${CHECK} ${KERNEL} sha256 checks out"; \
 	else \
 		${FRESHCHK} ${KDIST}/kernel/${KERNEL}.gz kernels/${KERNEL} || \
 			curl -L -o- ${KDIST}/kernel/${KERNEL}.gz | \
@@ -161,7 +177,8 @@ build: fetchall # Build an image (with SERVICE=$SERVICE from service/)
 		sed -E 's/[[:blank:]]+([A-Z_]+)/\n\1/g;s/=[[:blank:]]*([[:print:]]+)/="\1"/g' > \
 		tmp/build-${SERVICE}
 	$Qecho "${ARROW} starting the builder microvm"
-	$Q./startnb.sh -k kernels/${KERNEL} -i ${BUILDIMGPATH} -c 2 -m 1024 \
+	$Q./startnb.sh -k kernels/${KERNEL} -i ${BUILDIMGPATH} \
+		-c ${BUILDCPUS} -m ${BUILDMEM} \
 		-p ${PORT} -w . -x "-pidfile qemu-${.TARGET}.pid" &
 	# wait till the build is finished, guest removes the lock
 	$Qwhile [ -f tmp/build-${SERVICE} ]; do sleep 0.2; done
