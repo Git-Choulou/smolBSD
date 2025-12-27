@@ -1,0 +1,51 @@
+#!/bin/sh
+
+. /etc/include/basicrc
+. /etc/include/choupi
+. /etc/include/mount9p
+. /etc/include/pkgin
+
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/pkg/bin:/usr/pkg/sbin
+export TERM=tmux-256color
+
+echo "${INFO} Mariadb settings ..."
+pkg_info mariadb-server 2> /dev/null
+if [ $? -ne 0 ]; then
+	echo "${ARROW} mariadb-server installation"
+	pkgin -y install mariadb-server php84
+	install -d -o mariadb -g mariadb -m 755 /var/run/mariadb
+	cp /usr/pkg/share/examples/rc.d/mariadb /etc/rc.d/mariadb
+	echo "mariadb=yes" >> /etc/rc.conf
+fi
+
+/etc/rc.d/mariadb start
+exitCode=$?
+sleep 3
+
+if [ ${exitCode} -ne 0 ]; then
+	echo "${ERROR} mariadb not running"
+	break
+fi
+
+sqldir="/mnt/sql"
+wwwdir="/mnt/www"
+wwwroot="/var/www"
+rmdir ${wwwroot}
+ln -snf ${wwwdir} ${wwwroot}
+echo "${INFO} loading sql files in the database ..."
+for sql in ${sqldir}/*.sql; do
+	echo -e "\t${ARROW}processing '$(basename $sql)'"
+	mariadb -S /tmp/mysql.sock < $sql
+done
+
+# Devenu inutile si on utlise le point de montage.
+#echo "${ARROW} copy www files into '/var/www/' folder "
+#cp -rv ${wwwdir}/* ${wwwroot} 2>&1 | awk '{printf "."; fflush()}'
+
+
+
+hostname nbmp
+echo -e "\n\n${ROCKET} Ready to be used !\n\n"
+ksh
+
+. /etc/include/shutdown
