@@ -3,49 +3,68 @@
 . /etc/include/basicrc
 . /etc/include/choupi
 . /etc/include/mount9p
-. /etc/include/pkgin
+#. /etc/include/pkgin
 
 export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/pkg/bin:/usr/pkg/sbin
 export TERM=tmux-256color
+sqldir="/mnt/sql"
+wwwdir="/mnt/www"
+wwwroot="/var/www"
 
-echo "${INFO} Mariadb settings ..."
-pkg_info mariadb-server 2> /dev/null
-if [ $? -ne 0 ]; then
-	echo "${ARROW} mariadb-server installation"
-	pkgin -y install mariadb-server php84
+hostname nbmp
+ 
+# A SUPPRIMER
+echo "alias ll='ls -al'" > /root/.bashrc
+
+if ! id mariadb >/dev/null 2>&1; then
+	echo "${ARROW} MariaDB server settings"
+	groupadd mariadb
+	useradd -g mariadb -m -d /var/db/mariadb -s /bin/sh -c "MariaDB administrator" mariadb
+	install -d -o mariadb -g mariadb -m 0700 /var/db/mariadb /var/log/mariadb
 	install -d -o mariadb -g mariadb -m 755 /var/run/mariadb
+	install -o mariadb -g mariadb -m 750 /dev/null /var/log/mariadb/error.log
 	cp /usr/pkg/share/examples/rc.d/mariadb /etc/rc.d/mariadb
 	echo "mariadb=yes" >> /etc/rc.conf
+	
+	echo "${ARROW} Bozohttpd settings"
+	rmdir ${wwwroot}
+	ln -snf ${wwwdir} ${wwwroot}
 fi
 
+load_sql()
+{
+	echo "${INFO} loading sql files in the database..."
+	for sql in ${sqldir}/*.sql; do
+		echo -e " \t${ARROW} processing '$(basename $sql)'"
+		#mariadb -S /tmp/mysql.sock < $sql
+		mariadb < $sql
+	done
+}
+
+echo "${ROCKET} MariaDB launching..."
 /etc/rc.d/mariadb start
 exitCode=$?
 sleep 3
 
 if [ ${exitCode} -ne 0 ]; then
-	echo "${ERROR} mariadb not running"
-	break
+	echo -e "${ERROR} MariaDB is not running.\nExit\n\n"
+	return -1
 fi
 
-sqldir="/mnt/sql"
-wwwdir="/mnt/www"
-wwwroot="/var/www"
-rmdir ${wwwroot}
-ln -snf ${wwwdir} ${wwwroot}
-echo "${INFO} loading sql files in the database ..."
-for sql in ${sqldir}/*.sql; do
-	echo -e "\t${ARROW}processing '$(basename $sql)'"
-	mariadb -S /tmp/mysql.sock < $sql
-done
+keep_db_data="yes"
+if [ "${keep_db_data}" = "no" ]; then
+	echo "${INFO} use 'keep_db_data=\"no\"' -> drop databases..."
+	dbs=$(mariadb -B -s -e "show databases" | grep -viE "(information_schema|performance_schema|sys|mysql|test)")
+	for db in ${dbs}; do
+		mariadb -e "drop database ${db}"
+	done
+	load_sql
+fi
 
-# Devenu inutile si on utlise le point de montage.
-#echo "${ARROW} copy www files into '/var/www/' folder "
-#cp -rv ${wwwdir}/* ${wwwroot} 2>&1 | awk '{printf "."; fflush()}'
+echo "${ROCKET} bozohttpd launching..."
+/usr/libexec/bozohttpd -b -x index.php -C .php /usr/pkg/libexec/cgi-bin/php84 /var/www/
 
-
-
-hostname nbmp
 echo -e "\n\n${ROCKET} Ready to be used !\n\n"
-ksh
+bash
 
 . /etc/include/shutdown
