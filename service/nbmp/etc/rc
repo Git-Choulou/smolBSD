@@ -22,12 +22,9 @@ load_sql()
 }
 
 hostname nbmp
- 
-# A SUPPRIMER
-echo "alias ll='ls -al'" > /etc/profile
-echo "alias stop='/etc/rc.d/mariadb stop'" >> /etc/profile
 
-
+# If mariadb user does not exists, this means that the configuration has not been done.
+# So, let's do it now. Otherwise, let's continue.
 if ! id mariadb >/dev/null 2>&1; then
 	echo "${ARROW} MariaDB server settings"
 	groupadd mariadb
@@ -41,6 +38,16 @@ if ! id mariadb >/dev/null 2>&1; then
 	echo "${ARROW} Bozohttpd settings"
 	rmdir ${wwwroot}
 	ln -snf ${wwwdir} ${wwwroot}
+	
+	if [ ! -d usr/pkg/etc/php/8.4 ]; then
+		echo "${ARROW} PHP settings ..."
+		mkdir -p usr/pkg/etc/php/8.4/
+		cp usr/pkg/share/examples/php/8.4/php.ini-production usr/pkg/etc/php/8.4/php.ini
+		# PHP extensions activation.
+		sed -i'' 's/;extension=curl/extension=curl/g' usr/pkg/etc/php/8.4/php.ini
+		sed -i'' 's/;extension=mysqli/extension=mysqli/g' usr/pkg/etc/php/8.4/php.ini
+		sed -i'' 's/;extension=pdo_mysql/extension=pdo\nextension=pdo_mysql/g' usr/pkg/etc/php/8.4/php.ini
+	fi
 fi
 
 echo "${ROCKET} MariaDB launching..."
@@ -49,7 +56,7 @@ exitCode=$?
 sleep 2
 
 if [ ${exitCode} -ne 0 ]; then
-	echo -e "${ERROR} MariaDB is not running.\nExit\n\n"
+	echo -e "${ERROR} It seems MariaDB has fail to launch.\nExit\n\n"
 	return -1
 fi
 
@@ -67,6 +74,8 @@ else
 fi
 
 echo "${ROCKET} bozohttpd launching..."
+# Debug version
+# /usr/libexec/bozohttpd -f -s -d -x index.php -C .php /usr/pkg/libexec/cgi-bin/php84 /var/www/
 /usr/libexec/bozohttpd -b -x index.php -C .php /usr/pkg/libexec/cgi-bin/php84 /var/www/
 
 echo -e "\n\n${ROCKET} Ready to be used !\n\n"
